@@ -1,0 +1,5 @@
+tensorflow==2.17.0
+numpy==1.26.4
+pandas==2.2.2
+FinanceDataReader==0.9.94
+bs4==4.12.3
