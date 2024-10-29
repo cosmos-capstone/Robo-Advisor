@@ -6,6 +6,8 @@ from keras.src.optimizers import Adam
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 import FinanceDataReader as fdr
+from datetime import timedelta
+
 
 # 데이터 불러오기
 kospi_data = fdr.DataReader('KS11', '2020-01-01', '2024-12-31')  # KOSPI
@@ -73,6 +75,7 @@ def split_data(data_scaled, dates, seq_len=14, pred_days=1):
 kospi_trainX, kospi_trainY, kospi_testX, kospi_testY, kospi_test_dates = split_data(kospi_scaled, kospi_dates)
 sp500_trainX, sp500_trainY, sp500_testX, sp500_testY, sp500_test_dates = split_data(sp500_scaled, sp500_dates)
 
+
 # LSTM 모델 구성
 def build_model(input_shape):
     model = Sequential()
@@ -82,33 +85,37 @@ def build_model(input_shape):
     
     return model
 
-# 모델 학습 및 예측 함수
-def train_and_predict(trainX, trainY, testX, testY, scaler, asset_name):
+# 모델 학습 함수
+def train_or_load_model(trainX, trainY, asset_name):
     model = build_model((trainX.shape[1], trainX.shape[2]))
     model.compile(optimizer=Adam(learning_rate=0.01), loss='mse')
 
-    # 가중치 로드 또는 모델 학습
+    # 가중치 파일 경로
     weight_path = f'./save_weights/lstm_{asset_name}.weights.h5'
-    
+
+    # 가중치가 있으면 로드하고, 없으면 학습 수행
     try:
         model.load_weights(weight_path)
         print(f"Loaded model weights for {asset_name} from disk")
     except:
         print(f"No weights found for {asset_name}, training model from scratch")
-        # 모델 학습
         history = model.fit(trainX, trainY, epochs=30, batch_size=32, validation_split=0.1, verbose=1)
         model.save_weights(weight_path)
 
-        # 학습 결과 시각화
+        # 학습 손실 시각화
         plt.plot(history.history['loss'], label='Training loss')
         plt.plot(history.history['val_loss'], label='Validation loss')
         plt.title(f'{asset_name} Training Loss')
         plt.legend()
         plt.show()
 
+    return model
+
+# 모델 예측 함수
+def predict(model, testX, testY, scaler):
     # 예측 수행
     prediction = model.predict(testX)
-    
+
     # 예측 데이터 복원 (스케일 역변환)
     mean_values_pred = np.repeat(scaler.mean_[np.newaxis, :], prediction.shape[0], axis=0)
     mean_values_pred[:, 0] = np.squeeze(prediction)
@@ -121,33 +128,110 @@ def train_and_predict(trainX, trainY, testX, testY, scaler, asset_name):
 
     return y_pred, testY_original
 
-# 예측 결과
-kospi_pred, kospi_testY_original = train_and_predict(kospi_trainX, kospi_trainY, kospi_testX, kospi_testY, kospi_scaler, 'KOSPI')
-sp500_pred, sp500_testY_original = train_and_predict(sp500_trainX, sp500_trainY, sp500_testX, sp500_testY, sp500_scaler, 'S&P500')
+# KOSPI 모델 학습 및 예측
+kospi_model = train_or_load_model(kospi_trainX, kospi_trainY, 'KOSPI')
+kospi_pred, kospi_testY_original = predict(kospi_model, kospi_testX, kospi_testY, kospi_scaler)
 
-# 결과 시각화
-plt.figure(figsize=(14, 5))
-
+# S&P 500 모델 학습 및 예측
+sp500_model = train_or_load_model(sp500_trainX, sp500_trainY, 'S&P500')
+sp500_pred, sp500_testY_original = predict(sp500_model, sp500_testX, sp500_testY, sp500_scaler)
 seq_len = 14
 
-# KOSPI 결과
+
+# # 결과 시각화
+# plt.figure(figsize=(14, 5))
+
+
+# # KOSPI 결과
+# plt.subplot(1, 2, 1)
+# plt.plot(kospi_dates, kospi_data['Open'], color='green', label='Original Open Price (KOSPI)')
+# plt.plot(kospi_test_dates[seq_len:], kospi_testY_original, color='blue', label='Actual Open Price (KOSPI)')
+# plt.plot(kospi_test_dates[seq_len:], kospi_pred, color='red', linestyle='--', label='Predicted Open Price (KOSPI)')
+# plt.xlabel('Date')
+# plt.ylabel('Open Price')
+# plt.title('KOSPI: Original, Actual and Predicted Open Price')
+# plt.legend()
+
+# # S&P500 결과
+# plt.subplot(1, 2, 2)
+# plt.plot(sp500_dates, sp500_data['Open'], color='green', label='Original Open Price (S&P500)')
+# plt.plot(sp500_test_dates[seq_len:], sp500_testY_original, color='blue', label='Actual Open Price (S&P500)')
+# plt.plot(sp500_test_dates[seq_len:], sp500_pred, color='red', linestyle='--', label='Predicted Open Price (S&P500)')
+# plt.xlabel('Date')
+# plt.ylabel('Open Price')
+# plt.title('S&P 500: Original, Actual and Predicted Open Price')
+# plt.legend()
+
+# plt.tight_layout()
+# plt.show()
+
+
+
+def multi_step_forecast(model, last_sequence, days_ahead, scaler):
+    forecast = []
+    sequence = last_sequence.copy()  # 마지막 시퀀스를 복사하여 사용
+    
+    for _ in range(days_ahead):
+        # 예측 수행
+        prediction = model.predict(sequence[np.newaxis, :, :])
+        
+        # 예측한 값의 차원을 맞춰서 `sequence`의 끝에 추가
+        prediction = np.repeat(prediction, sequence.shape[1], axis=-1)  # (1, feature_dim) 형태로 변환
+        
+        # 현재 시퀀스의 끝에 추가하고, 첫 번째 값을 제거하여 업데이트
+        sequence = np.append(sequence[1:], prediction, axis=0)
+        
+        # 예측한 값을 리스트에 저장 (역변환 필요)
+        mean_values_pred = np.repeat(scaler.mean_[np.newaxis, :], 1, axis=0)
+        mean_values_pred[:, 0] = prediction[0, 0]  # 예측된 Close 값
+        y_pred_original = scaler.inverse_transform(mean_values_pred)[:, 0]
+        
+        forecast.append(y_pred_original[0])  # 예측한 값을 추가
+
+    return forecast
+
+
+# 마지막 시퀀스 선택 (KOSPI와 S&P 500 각각에 대해 마지막 학습 시퀀스 사용)
+days_ahead = 14  # 예측할 날 수
+
+# KOSPI 14일 예측
+kospi_last_sequence = kospi_testX[-1]  # 마지막 시퀀스
+kospi_forecast = multi_step_forecast(kospi_model, kospi_last_sequence, days_ahead, kospi_scaler)
+
+# S&P500 14일 예측
+sp500_last_sequence = sp500_testX[-1]  # 마지막 시퀀스
+sp500_forecast = multi_step_forecast(sp500_model, sp500_last_sequence, days_ahead, sp500_scaler)
+
+
+from datetime import datetime, timedelta
+
+# 오늘 날짜로부터 14일 후까지의 날짜 생성
+today = datetime.now()
+forecast_dates = [today + timedelta(days=i) for i in range(1, days_ahead + 1)]
+
+# 예측 결과 시각화
+plt.figure(figsize=(14, 5))
+
+# KOSPI 예측 결과
 plt.subplot(1, 2, 1)
 plt.plot(kospi_dates, kospi_data['Open'], color='green', label='Original Open Price (KOSPI)')
 plt.plot(kospi_test_dates[seq_len:], kospi_testY_original, color='blue', label='Actual Open Price (KOSPI)')
 plt.plot(kospi_test_dates[seq_len:], kospi_pred, color='red', linestyle='--', label='Predicted Open Price (KOSPI)')
+plt.plot(forecast_dates, kospi_forecast, color='purple', label='Forecasted Price (KOSPI)')
 plt.xlabel('Date')
 plt.ylabel('Open Price')
-plt.title('KOSPI: Original, Actual and Predicted Open Price')
+plt.title('KOSPI: Original, Actual, Predicted and Forecasted Open Price')
 plt.legend()
 
-# S&P500 결과
+# S&P500 예측 결과
 plt.subplot(1, 2, 2)
 plt.plot(sp500_dates, sp500_data['Open'], color='green', label='Original Open Price (S&P500)')
 plt.plot(sp500_test_dates[seq_len:], sp500_testY_original, color='blue', label='Actual Open Price (S&P500)')
 plt.plot(sp500_test_dates[seq_len:], sp500_pred, color='red', linestyle='--', label='Predicted Open Price (S&P500)')
+plt.plot(forecast_dates, sp500_forecast, color='purple', linestyle='--', label='Forecasted Price (S&P500)')
 plt.xlabel('Date')
 plt.ylabel('Open Price')
-plt.title('S&P 500: Original, Actual and Predicted Open Price')
+plt.title('S&P 500: Original, Actual, Predicted and Forecasted Open Price')
 plt.legend()
 
 plt.tight_layout()
