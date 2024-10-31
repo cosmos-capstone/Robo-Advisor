@@ -1,17 +1,17 @@
 import numpy as np
 import pandas as pd
 from keras import Sequential
-from keras.src.layers import LSTM, Dense
+from keras.src.layers import LSTM, Dense, Dropout
 from keras.src.optimizers import Adam
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 import FinanceDataReader as fdr
 from datetime import datetime, timedelta
-from keras._tf_keras.keras.models import load_model, save_model
+from keras._tf_keras.keras.models import load_model
 
 
-K_stock_ticker = '379810'
-A_stock_ticker = 'QQQM'
+K_stock_ticker = '088980'
+A_stock_ticker = 'SPY'
 
 
 kospi_data = fdr.DataReader(K_stock_ticker, '2020-01-01', '2024-12-31')  
@@ -44,12 +44,10 @@ def prepare_data(data):
 
     return data_scaled, scaler, dates
 
-# KOSPI와 S&P 데이터를 각각 준비
 kospi_scaled, kospi_scaler, kospi_dates = prepare_data(kospi_data)
 sp500_scaled, sp500_scaler, sp500_dates = prepare_data(sp500_data)
 
-# 학습 데이터를 시퀀스 형식으로 변환하는 함수 (예측 대상은 전체 데이터)
-def create_sequences(data_scaled, seq_len=14):
+def create_sequences(data_scaled, seq_len=10):
     sequences = []
     targets = []
 
@@ -64,17 +62,18 @@ kospi_trainX, kospi_trainY = create_sequences(kospi_scaled)
 sp500_trainX, sp500_trainY = create_sequences(sp500_scaled)
 
 # LSTM 모델 구성
+# LSTM 모델 구성 (Dropout 추가 및 LSTM 유닛 조정)
 def build_model(input_shape):
     model = Sequential()
-    model.add(LSTM(64, input_shape=input_shape, return_sequences=True))
-    model.add(LSTM(32, return_sequences=False))
+    model.add(LSTM(32, input_shape=input_shape, return_sequences=True))  # LSTM 유닛 수를 64 -> 32로 줄임
+    model.add(LSTM(16, return_sequences=False))  # LSTM 유닛 수를 32 -> 16으로 줄임
     model.add(Dense(1))
     
     return model
 
 def train_or_load_model(trainX, trainY, asset_name):
     # 모델 경로
-    model_path = f'./save_models/lstm_{asset_name}.h5'
+    model_path = f'./save_models/lstm_{asset_name}.keras'
 
     # 모델 로드 또는 학습
     try:
@@ -83,11 +82,11 @@ def train_or_load_model(trainX, trainY, asset_name):
     except:
         print(f"No model found for {asset_name}, training model from scratch")
         model = build_model((trainX.shape[1], trainX.shape[2]))
-        model.compile(optimizer=Adam(learning_rate=0.01), loss='mse')
+        model.compile(optimizer=Adam(learning_rate=0.01), loss='mean_squared_error')
 
         # 모델 학습
         history = model.fit(trainX, trainY, epochs=30, batch_size=32, validation_split=0.1, verbose=1)
-        save_model(model, model_path)  # 모델 저장
+        model.save(model_path)  # 모델 저장
 
         # 학습 손실 시각화
         plt.plot(history.history['loss'], label='Training loss')
@@ -125,7 +124,7 @@ def multi_step_forecast(model, last_sequence, days_ahead, scaler):
 # KOSPI 모델 학습 및 예측
 kospi_model = train_or_load_model(kospi_trainX, kospi_trainY, K_stock_ticker)
 kospi_last_sequence = kospi_trainX[-1]  # 마지막 시퀀스
-days_ahead = 14  # 예측할 날 수
+days_ahead = 10  # 예측할 날 수
 
 # last sequence를 오늘 날짜로 바꿔서 
 kospi_forecast = multi_step_forecast(kospi_model, kospi_last_sequence, days_ahead, kospi_scaler)
@@ -135,7 +134,7 @@ sp500_model = train_or_load_model(sp500_trainX, sp500_trainY, A_stock_ticker)
 sp500_last_sequence = sp500_trainX[-1]  # 마지막 시퀀스
 sp500_forecast = multi_step_forecast(sp500_model, sp500_last_sequence, days_ahead, sp500_scaler)
 
-# 오늘 날짜로부터 14일 후까지의 날짜 생성
+# 오늘 날짜로부터 10일 후까지의 날짜 생성
 today = datetime.now()
 forecast_dates = [today + timedelta(days=i) for i in range(1, days_ahead + 1)]
 # 예측 날짜 형식 변경 및 소수점 반올림 적용
@@ -143,7 +142,7 @@ def format_forecast_results(dates, forecasts):
     formatted_results = [(date.strftime('%Y-%m-%d'), round(forecast, 2)) for date, forecast in zip(dates, forecasts)]
     return formatted_results
 
-# 오늘 날짜로부터 14일 후까지의 날짜 생성
+# 오늘 날짜로부터 10일 후까지의 날짜 생성
 today = datetime.now()
 forecast_dates = [today + timedelta(days=i) for i in range(1, days_ahead + 1)]
 
