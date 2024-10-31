@@ -7,14 +7,15 @@ from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 import FinanceDataReader as fdr
 from datetime import datetime, timedelta
-from keras.src.models import load_model
+from keras._tf_keras.keras.models import load_model, save_model
+
 
 K_stock_ticker = '379810'
 A_stock_ticker = 'QQQM'
 
 
 kospi_data = fdr.DataReader(K_stock_ticker, '2020-01-01', '2024-12-31')  
-sp500_data = fdr.DataReader(A_stock_ticker, '2016-01-01', '2024-12-31')  
+sp500_data = fdr.DataReader(A_stock_ticker, '2020-01-01', '2024-12-31')  
 print(kospi_data)
 
 
@@ -71,22 +72,22 @@ def build_model(input_shape):
     
     return model
 
-# 모델 학습 함수
 def train_or_load_model(trainX, trainY, asset_name):
-    model = build_model((trainX.shape[1], trainX.shape[2]))
-    model.compile(optimizer=Adam(learning_rate=0.01), loss='mse')
-
-    # 전체 모델 파일 경로
+    # 모델 경로
     model_path = f'./save_models/lstm_{asset_name}.h5'
 
-    # 모델이 있으면 로드하고, 없으면 학습 수행
+    # 모델 로드 또는 학습
     try:
         model = load_model(model_path)
-        print(f"Loaded full model for {asset_name} from disk")
+        print(f"Loaded model for {asset_name} from disk")
     except:
-        print(f"No saved model found for {asset_name}, training model from scratch")
+        print(f"No model found for {asset_name}, training model from scratch")
+        model = build_model((trainX.shape[1], trainX.shape[2]))
+        model.compile(optimizer=Adam(learning_rate=0.01), loss='mse')
+
+        # 모델 학습
         history = model.fit(trainX, trainY, epochs=30, batch_size=32, validation_split=0.1, verbose=1)
-        model.save(model_path)  # 전체 모델 저장
+        save_model(model, model_path)  # 모델 저장
 
         # 학습 손실 시각화
         plt.plot(history.history['loss'], label='Training loss')
@@ -96,6 +97,7 @@ def train_or_load_model(trainX, trainY, asset_name):
         plt.show()
 
     return model
+
 
 # 다단계 예측 함수
 def multi_step_forecast(model, last_sequence, days_ahead, scaler):
@@ -154,16 +156,16 @@ print(kospi_forecast_results, sp500_forecast_results)
 plt.figure(figsize=(14, 5))
 
 plt.subplot(1, 2, 1)
-plt.plot(kospi_dates, kospi_data['Open'], color='green', label='Original Open Price (KOSPI)')
-plt.plot(forecast_dates, kospi_forecast, color='purple', label='Forecasted Price (KOSPI)')
+plt.plot(kospi_dates, kospi_data['Open'], color='green', label='Original Open Price f{kor}')
+plt.plot(forecast_dates, kospi_forecast, color='purple', label='Forecasted Price f{kor}')
 plt.xlabel('Date')
 plt.ylabel('Open Price')
 plt.title('KOSPI: Original and Forecasted Open Price')
 plt.legend()
 
 plt.subplot(1, 2, 2)
-plt.plot(sp500_dates, sp500_data['Open'], color='green', label='Original Open Price (S&P500)')
-plt.plot(forecast_dates, sp500_forecast, color='purple', linestyle='--', label='Forecasted Price (S&P500)')
+plt.plot(sp500_dates, sp500_data['Open'], color='green', label='Original Open Price f{ame}')
+plt.plot(forecast_dates, sp500_forecast, color='purple', linestyle='--', label='Forecasted Price f{ame}')
 plt.xlabel('Date')
 plt.ylabel('Open Price')
 plt.title('S&P 500: Original and Forecasted Open Price')
