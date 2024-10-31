@@ -7,14 +7,16 @@ from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 import FinanceDataReader as fdr
 from datetime import datetime, timedelta
+from keras.src.models import load_model
 
-# 데이터 불러오기
-kospi_data = fdr.DataReader('KS11', '2020-01-01', '2024-12-31')  # KOSPI
-sp500_data = fdr.DataReader('US500', '2020-01-01', '2024-12-31')  # S&P 500
+K_stock_ticker = '379810'
+A_stock_ticker = 'QQQM'
 
-# 필요 없는 컬럼 삭제
-kospi_data.drop(['Change', 'UpDown', 'Comp', 'Amount', 'MarCap'], axis=1, inplace=True)
-sp500_data.drop(['Adj Close'], axis=1, inplace=True)
+
+kospi_data = fdr.DataReader(K_stock_ticker, '2020-01-01', '2024-12-31')  
+sp500_data = fdr.DataReader(A_stock_ticker, '2016-01-01', '2024-12-31')  
+print(kospi_data)
+
 
 # 인덱스에서 Date를 열로 변환
 kospi_data = kospi_data.reset_index()
@@ -74,17 +76,17 @@ def train_or_load_model(trainX, trainY, asset_name):
     model = build_model((trainX.shape[1], trainX.shape[2]))
     model.compile(optimizer=Adam(learning_rate=0.01), loss='mse')
 
-    # 가중치 파일 경로
-    weight_path = f'./save_weights/lstm_{asset_name}.weights.h5'
+    # 전체 모델 파일 경로
+    model_path = f'./save_models/lstm_{asset_name}.h5'
 
-    # 가중치가 있으면 로드하고, 없으면 학습 수행
+    # 모델이 있으면 로드하고, 없으면 학습 수행
     try:
-        model.load_weights(weight_path)
-        print(f"Loaded model weights for {asset_name} from disk")
+        model = load_model(model_path)
+        print(f"Loaded full model for {asset_name} from disk")
     except:
-        print(f"No weights found for {asset_name}, training model from scratch")
+        print(f"No saved model found for {asset_name}, training model from scratch")
         history = model.fit(trainX, trainY, epochs=30, batch_size=32, validation_split=0.1, verbose=1)
-        model.save_weights(weight_path)
+        model.save(model_path)  # 전체 모델 저장
 
         # 학습 손실 시각화
         plt.plot(history.history['loss'], label='Training loss')
@@ -119,13 +121,15 @@ def multi_step_forecast(model, last_sequence, days_ahead, scaler):
 
     return forecast
 # KOSPI 모델 학습 및 예측
-kospi_model = train_or_load_model(kospi_trainX, kospi_trainY, 'KOSPI')
+kospi_model = train_or_load_model(kospi_trainX, kospi_trainY, K_stock_ticker)
 kospi_last_sequence = kospi_trainX[-1]  # 마지막 시퀀스
 days_ahead = 14  # 예측할 날 수
+
+# last sequence를 오늘 날짜로 바꿔서 
 kospi_forecast = multi_step_forecast(kospi_model, kospi_last_sequence, days_ahead, kospi_scaler)
 
 # S&P 500 모델 학습 및 예측
-sp500_model = train_or_load_model(sp500_trainX, sp500_trainY, 'S&P500')
+sp500_model = train_or_load_model(sp500_trainX, sp500_trainY, A_stock_ticker)
 sp500_last_sequence = sp500_trainX[-1]  # 마지막 시퀀스
 sp500_forecast = multi_step_forecast(sp500_model, sp500_last_sequence, days_ahead, sp500_scaler)
 
@@ -147,26 +151,23 @@ sp500_forecast_results = format_forecast_results(forecast_dates, sp500_forecast)
 
 print(kospi_forecast_results, sp500_forecast_results)
 
-# # 예측 결과 시각화
-# plt.figure(figsize=(14, 5))
+plt.figure(figsize=(14, 5))
 
-# # KOSPI 예측 결과
-# plt.subplot(1, 2, 1)
-# plt.plot(kospi_dates, kospi_data['Open'], color='green', label='Original Open Price (KOSPI)')
-# plt.plot(forecast_dates, kospi_forecast, color='purple', label='Forecasted Price (KOSPI)')
-# plt.xlabel('Date')
-# plt.ylabel('Open Price')
-# plt.title('KOSPI: Original and Forecasted Open Price')
-# plt.legend()
+plt.subplot(1, 2, 1)
+plt.plot(kospi_dates, kospi_data['Open'], color='green', label='Original Open Price (KOSPI)')
+plt.plot(forecast_dates, kospi_forecast, color='purple', label='Forecasted Price (KOSPI)')
+plt.xlabel('Date')
+plt.ylabel('Open Price')
+plt.title('KOSPI: Original and Forecasted Open Price')
+plt.legend()
 
-# # S&P500 예측 결과
-# plt.subplot(1, 2, 2)
-# plt.plot(sp500_dates, sp500_data['Open'], color='green', label='Original Open Price (S&P500)')
-# plt.plot(forecast_dates, sp500_forecast, color='purple', linestyle='--', label='Forecasted Price (S&P500)')
-# plt.xlabel('Date')
-# plt.ylabel('Open Price')
-# plt.title('S&P 500: Original and Forecasted Open Price')
-# plt.legend()
+plt.subplot(1, 2, 2)
+plt.plot(sp500_dates, sp500_data['Open'], color='green', label='Original Open Price (S&P500)')
+plt.plot(forecast_dates, sp500_forecast, color='purple', linestyle='--', label='Forecasted Price (S&P500)')
+plt.xlabel('Date')
+plt.ylabel('Open Price')
+plt.title('S&P 500: Original and Forecasted Open Price')
+plt.legend()
 
-# plt.tight_layout()
-# plt.show()
+plt.tight_layout()
+plt.show()

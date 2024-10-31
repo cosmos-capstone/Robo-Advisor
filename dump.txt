@@ -1,0 +1,6 @@
+1. SPDR S&P500 ETF trust : SPY
+2. 뱅가드 S&P500 ETF : VOO
+3. 인베스코 나스닥 100 ETF : QQQM
+4. 맥쿼리인프라 : 088980
+5. KODEX 미국 S&P500TR : 379800
+6. KODEX 미국나스닥 100TR : 379810
